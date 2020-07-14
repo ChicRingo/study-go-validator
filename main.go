@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"time"
 )
 
 // 定义一个全局翻译器T
@@ -30,6 +31,10 @@ func InitTrans(locale string) (err error) {
 			}
 			return name
 		})
+		// 在校验器注册自定义的校验方法
+		if err := v.RegisterValidation("checkDate", checkDate); err != nil {
+			return err
+		}
 		// 为SignUpParam注册自定义校验方法
 		v.RegisterStructValidation(SignUpParamStructLevelValidation, SignUpParam{})
 
@@ -58,6 +63,19 @@ func InitTrans(locale string) (err error) {
 		default:
 			err = enTranslations.RegisterDefaultTranslations(v, trans)
 		}
+		if err != nil {
+			return err
+		}
+		// 注意！因为这里会使用到trans实例
+		// 所以这一步注册要放到trans初始化的后面
+		if err := v.RegisterTranslation(
+			"checkDate",
+			trans,
+			registerTranslator("checkDate", "{0}必须要晚于当前日期"),
+			translate,
+		); err != nil {
+			return err
+		}
 		return
 	}
 	return
@@ -69,6 +87,28 @@ type SignUpParam struct {
 	Email      string `json:"email" binding:"required,email"`
 	Password   string `json:"password" binding:"required"`
 	RePassword string `json:"re_password" binding:"required,eqfield=Password"`
+	Date       string `json:"date" binding:"required,datetime=2006-01-02,checkDate"`
+}
+
+//自定义验证器
+func checkDate(fl validator.FieldLevel) bool {
+	//date, ok := fl.Field().Interface().(time.Time)
+	//if ok {
+	//	today := time.Now()
+	//	if today.After(date) {
+	//		return false
+	//	}
+	//}
+	//return true
+	date, err := time.Parse("2006-01-02", fl.Field().String())
+	if err != nil {
+		return false
+	}
+	today := time.Now()
+	if today.After(date) {
+		return false
+	}
+	return true
 }
 
 //定义一个去掉结构体名称前缀的自定义方法
@@ -90,6 +130,25 @@ func SignUpParamStructLevelValidation(sl validator.StructLevel) {
 	}
 }
 
+// registerTranslator 为自定义字段添加翻译功能
+func registerTranslator(tag string, msg string) validator.RegisterTranslationsFunc {
+	return func(trans ut.Translator) error {
+		if err := trans.Add(tag, msg, false); err != nil {
+			return err
+		}
+		return nil
+	}
+}
+
+// translate 自定义字段的翻译方法
+func translate(trans ut.Translator, fe validator.FieldError) string {
+	msg, err := trans.T(fe.Tag(), fe.Field())
+	if err != nil {
+		panic(fe.(error).Error())
+	}
+	return msg
+}
+
 func main() {
 	if err := InitTrans("zh"); err != nil {
 		fmt.Printf("init trans failed, err:%v\n", err)
@@ -97,21 +156,31 @@ func main() {
 	}
 
 	r := gin.Default()
-
+	// 在校验器注册自定义的校验方法
+	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
+		v.RegisterValidation("checkDate", checkDate)
+	}
 	r.POST("/signup", func(c *gin.Context) {
 		var u SignUpParam
 		if err := c.ShouldBind(&u); err != nil {
 			// 获取validator.ValidationErrors类型的errors
-			errs := err.(validator.ValidationErrors)
-
+			errs, ok := err.(validator.ValidationErrors)
+			if !ok {
+				// 非validator.ValidationErrors类型错误直接返回
+				c.JSON(http.StatusOK, gin.H{
+					"msg": err.Error(),
+				})
+				return
+			}
+			// validator.ValidationErrors类型错误则进行翻译
+			// 并使用removeTopStruct函数去除字段名中的结构体名称标识
 			c.JSON(http.StatusOK, gin.H{
 				//"msg": errs.Translate(trans), // 翻译校验错误提示
-				// 翻译校验错误提示并去掉结构体前缀
 				"msg": removeTopStruct(errs.Translate(trans)),
 			})
 			return
 		}
-		// 保存入库...
+		// 保存入库等具体业务逻辑代码...
 
 		c.JSON(http.StatusOK, "success")
 	})
