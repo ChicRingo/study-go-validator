@@ -1,7 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"reflect"
+	"strings"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/locales/en"
@@ -10,10 +16,6 @@ import (
 	"github.com/go-playground/validator/v10"
 	enTranslations "github.com/go-playground/validator/v10/translations/en"
 	zhTranslations "github.com/go-playground/validator/v10/translations/zh"
-	"net/http"
-	"reflect"
-	"strings"
-	"time"
 )
 
 // 定义一个全局翻译器T
@@ -88,6 +90,8 @@ type SignUpParam struct {
 	Password   string `json:"password" binding:"required"`
 	RePassword string `json:"re_password" binding:"required,eqfield=Password"`
 	Date       string `json:"date" binding:"required,datetime=2006-01-02,checkDate"`
+	IsShow     *bool  `json:"is_show" binding:"required"`
+	// 零值无法通过校验，要用指针类型，或者实现Scanner/Valuer接口
 }
 
 //自定义验证器
@@ -181,6 +185,14 @@ func main() {
 			return
 		}
 		// 保存入库等具体业务逻辑代码...
+		fmt.Println(u)
+		//JSON序列化：结构体-->JSON格式的字符串
+		data, err := json.Marshal(u)
+		if err != nil {
+			fmt.Println("json marshal failed")
+			return
+		}
+		fmt.Printf("json:%s\n", data)
 
 		c.JSON(http.StatusOK, "success")
 	})
